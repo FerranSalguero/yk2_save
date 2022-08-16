@@ -5,8 +5,6 @@
 
 static const char Key[]  = "STarYZgr3DL11";
 static const int  KeyLen = 13;
-
-// https://stackoverflow.com/a/21001712
 unsigned int crc32b(unsigned char *message) {
    int i, j;
    unsigned int byte, crc, mask;
@@ -33,13 +31,13 @@ uint32_t calculate(char *data, uint64_t sz)
 int main(int argc, char **argv)
 {
     FILE *in, *out;
-    unsigned char *data, *outname, *filename, *ext;
+    char *data, *outname, *filename, *ext, *cs1, *calc, *cs2;
     size_t sz;
     uint32_t checksum;
     
     if (argc != 2)
     {
-        printf("Usage: %s in.json\n", argv[0]);
+        printf("Usage: %s in.sav\n", argv[0]);
         return 0;
     }
     
@@ -49,13 +47,12 @@ int main(int argc, char **argv)
         return 1;
     }
     
-    // get filename without extension
     filename = malloc(sizeof(argv[1]));
     strcpy(filename, argv[1]);
     ext = strchr(filename, '.');
     filename[(int)(ext - filename)] = '\0';
     
-    outname = strcat(filename, ".sav");
+    outname = strcat(filename, ".json");
     
     if ((out = fopen(outname, "wb")) == NULL)
     {
@@ -67,48 +64,59 @@ int main(int argc, char **argv)
     printf("Writing %s to %s...\n", argv[1], outname);
     
     fseek(in, 0, SEEK_END);
-    sz = ftell(in);
-    data = malloc(sz + 12);
+    sz = ftell(in) - 12;
+    data = malloc(sz);
+    calc = malloc(4);
+    cs1 = malloc(8);
+    cs2 = malloc(4);
     rewind(in);
-    fread(data, 1, sz, in);
+    int t = fread(data, 1, sz, in);
+    printf("Total read: %zu| SZ: %i\n", t, sz);
+    fread(cs1, 1, 8, in);
+    fread(cs2, 1, 4, in);
     fclose(in);
     
-    // calculate checksum
-    checksum = calculate(data, (uint64_t)sz);
     
-    // encrypt
     for (int i = 0; i < sz; i++)
         data[i] ^= Key[i % KeyLen];
     
-    // add checksum
-    data[sz] = (unsigned char)40;
-    data[sz+1] = (unsigned char)94;
-    data[sz+2] = (unsigned char)1;
-    data[sz+3] = (unsigned char)10;
-    data[sz+4] = (unsigned char)0;
-    data[sz+5] = (unsigned char)0;
-    data[sz+6] = (unsigned char)9;
-    data[sz+7] = (unsigned char)0;
-    data[sz + 8] = (unsigned char)checksum;
-    data[sz + 9] = (unsigned char)(checksum >> 8);
-    data[sz + 10] = (unsigned char)(checksum >> 16);
-    data[sz + 11] = (unsigned char)(checksum >> 24);
-    // data[sz+12] = (unsigned char)53;
-    // data[sz+13] = (unsigned char) 243;
-    // data[sz+14] = (unsigned char)6;
-    // data[sz+15] = (unsigned char)49;
+    checksum = calculate(data, (uint64_t)sz);
     
-    printf("\nchecksum %X\n", checksum);
-    for (int i = sz; i < sz+12; i++) {
-        printf("%d-", (unsigned char)data[i]);
+    printf("calc checksum: %X\n", checksum);
+    for(int i = 0; i < 4; i++)
+    {
+        calc[i] = checksum >> (i*8);
+        printf("%d-", (unsigned char)calc[i]);
     }
-
-    fwrite(data, 1, sz + 12, out);
+    
+    // remove checksum from end of file to get proper json
+    
+    fwrite(data, 1, sz, out);
+    
+    printf("\nchecksum1 %i...\n", sizeof cs1);
+    for (int i = 0; i < 8; i++) {
+        printf("%d-", (unsigned char)cs1[i]);
+    }
+    
+    printf("\nchecksum2 %i...\n", sizeof cs2);
+    for (int i = 0; i < 4; i++) {
+        printf("%d-", (unsigned char)cs2[i]);
+    }
+    
+    int sum_c = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        sum_c += cs1[i] << (i*8);
+        
+    }
+    printf("\nTotal checksum %X", sum_c);
     
     free(data);
+    free(cs1);
+	free(calc);
     fclose(out);
     
-    puts("Done!");
+    puts("\nDone!");
     
     return 0;
 }
